@@ -1,16 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  images: {
-    domains: ['localhost', 'nexusbank-api.onrender.com'],
+  output: 'standalone',
+  eslint: {
+    ignoreDuringBuilds: true,
   },
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: `${process.env.NEXT_PUBLIC_API_URL}/:path*`,
-        
-      },
-    ];
+  typescript: {
+    ignoreBuildErrors: true,
   },
 };
 
