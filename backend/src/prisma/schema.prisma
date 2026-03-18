@@ -1,0 +1,243 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  FROZEN
+  PENDING_VERIFICATION
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  TRANSFER_IN
+  TRANSFER_OUT
+  CARD_PAYMENT
+  REFUND
+  FEE
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REVERSED
+  FLAGGED
+}
+
+enum CardStatus {
+  ACTIVE
+  FROZEN
+  EXPIRED
+  CANCELLED
+}
+
+enum KycStatus {
+  NOT_SUBMITTED
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum NotificationType {
+  TRANSACTION
+  SECURITY
+  SYSTEM
+  PROMOTION
+  KYC
+}
+
+model User {
+  id               String      @id @default(uuid())
+  email            String      @unique
+  phone            String?     @unique
+  firstName        String
+  lastName         String
+  passwordHash     String
+  role             UserRole    @default(USER)
+  status           UserStatus  @default(PENDING_VERIFICATION)
+  avatar           String?
+  dateOfBirth      DateTime?
+  address          String?
+  city             String?
+  country          String      @default("US")
+  emailVerified    Boolean     @default(false)
+  phoneVerified    Boolean     @default(false)
+  twoFactorEnabled Boolean     @default(false)
+  twoFactorSecret  String?
+  lastLoginAt      DateTime?
+  lastLoginIp      String?
+  loginAttempts    Int         @default(0)
+  lockedUntil      DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  accounts         Account[]
+  cards            Card[]
+  kyc              KycDocument?
+  notifications    Notification[]
+  refreshTokens    RefreshToken[]
+  auditLogs        AuditLog[]
+
+  @@index([email])
+  @@index([status])
+}
+
+model Account {
+  id              String    @id @default(uuid())
+  userId          String
+  accountNumber   String    @unique
+  routingNumber   String    @default("021000021")
+  accountType     String    @default("CHECKING")
+  balance         Decimal   @default(0) @db.Decimal(18, 2)
+  availableBalance Decimal  @default(0) @db.Decimal(18, 2)
+  currency        String    @default("USD")
+  isDefault       Boolean   @default(false)
+  isFrozen        Boolean   @default(false)
+  dailyLimit      Decimal   @default(10000) @db.Decimal(18, 2)
+  monthlyLimit    Decimal   @default(50000) @db.Decimal(18, 2)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sentTransactions     Transaction[] @relation("SenderAccount")
+  receivedTransactions Transaction[] @relation("ReceiverAccount")
+
+  @@index([userId])
+  @@index([accountNumber])
+}
+
+model Transaction {
+  id                String            @id @default(uuid())
+  referenceId       String            @unique @default(uuid())
+  senderAccountId   String?
+  receiverAccountId String?
+  type              TransactionType
+  status            TransactionStatus @default(PENDING)
+  amount            Decimal           @db.Decimal(18, 2)
+  fee               Decimal           @default(0) @db.Decimal(18, 2)
+  currency          String            @default("USD")
+  description       String?
+  metadata          Json?
+  stripePaymentId   String?
+  isFlagged         Boolean           @default(false)
+  flagReason        String?
+  processedAt       DateTime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  senderAccount     Account?          @relation("SenderAccount", fields: [senderAccountId], references: [id])
+  receiverAccount   Account?          @relation("ReceiverAccount", fields: [receiverAccountId], references: [id])
+
+  @@index([senderAccountId])
+  @@index([receiverAccountId])
+  @@index([status])
+  @@index([type])
+  @@index([createdAt])
+  @@index([isFlagged])
+}
+
+model Card {
+  id             String     @id @default(uuid())
+  userId         String
+  accountId      String?
+  cardNumber     String     @unique
+  maskedNumber   String
+  cardholderName String
+  expiryMonth    Int
+  expiryYear     Int
+  cvvHash        String
+  cardType       String     @default("VIRTUAL")
+  network        String     @default("VISA")
+  status         CardStatus @default(ACTIVE)
+  dailyLimit     Decimal    @default(2000) @db.Decimal(18, 2)
+  billingAddress String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  user           User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model KycDocument {
+  id              String    @id @default(uuid())
+  userId          String    @unique
+  status          KycStatus @default(NOT_SUBMITTED)
+  documentType    String?
+  documentNumber  String?
+  frontImageUrl   String?
+  backImageUrl    String?
+  selfieUrl       String?
+  rejectionReason String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  submittedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  isRead    Boolean          @default(false)
+  metadata  Json?
+  createdAt DateTime         @default(now())
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  isRevoked Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  entity    String?
+  entityId  String?
+  ipAddress String?
+  userAgent String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
